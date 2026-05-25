@@ -1,6 +1,6 @@
-from src.agent.state import ChatState
+from MeMen.src.agent.state import ChatState
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-from src.agent.settings import llm, strip_think_tags
+from MeMen.src.agent.settings import llm, strip_think_tags
 
 
 def build_system_prompt(memories: list, emotion: str) -> str:

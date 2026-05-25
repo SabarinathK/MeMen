@@ -1,12 +1,12 @@
-from src.agent.state import ChatState
-from src.agent.node.memory_node import memory_node
-from src.agent.node.todo_node import todo_node
+from MeMen.src.agent.state import ChatState
+from MeMen.src.agent.node.memory_node import memory_node
+from MeMen.src.agent.node.todo_node import todo_node
 from langgraph.graph import StateGraph, START, END
-from src.agent.node.emotion_node import emotion_node
-from src.agent.node.sync_barrier import sync_barrier
-from src.agent.node.response_node import response_node
-from src.agent.node.followup_node import followup_node
-from src.agent.node.mem0_save_node import mem0_save_node
+from MeMen.src.agent.node.emotion_node import emotion_node
+from MeMen.src.agent.node.sync_barrier import sync_barrier
+from MeMen.src.agent.node.response_node import response_node
+from MeMen.src.agent.node.followup_node import followup_node
+from MeMen.src.agent.node.mem0_save_node import mem0_save_node
 
 builder = StateGraph(ChatState)
 

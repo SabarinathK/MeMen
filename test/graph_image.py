@@ -1,4 +1,4 @@
-from src.agent.open_message import graph
+from MeMen.src.agent.open_message import graph
 
 app = graph.compile()
 

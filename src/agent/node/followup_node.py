@@ -1,9 +1,9 @@
-from src.agent.state import ChatState
-from src.agent.settings import llm, strip_think_tags
+from MeMen.src.agent.state import ChatState
+from MeMen.src.agent.settings import llm, strip_think_tags
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 import json
-from src.database import get_session
-from src.models import User, TodoItem
+from MeMen.src.database import get_session
+from MeMen.src.models import User, TodoItem
 from uuid import UUID, uuid4
 from sqlmodel import select
 

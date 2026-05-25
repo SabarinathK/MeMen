@@ -1,5 +1,5 @@
-from src.agent.state import ChatState
-from src.agent.settings import llm, strip_think_tags
+from MeMen.src.agent.state import ChatState
+from MeMen.src.agent.settings import llm, strip_think_tags
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
 EMOTION_PROMPT = """
