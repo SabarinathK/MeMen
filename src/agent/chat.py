@@ -1,19 +1,19 @@
-from MeMen.src.agent.state import ChatState
-from MeMen.src.agent.settings import llm, strip_think_tags
+from src.agent.state import ChatState
+from src.agent.settings import llm, strip_think_tags
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 import json
-from MeMen.src.database import get_session
-from MeMen.src.models import User, TodoItem
+from src.database import get_session
+from src.models import User, TodoItem
 from uuid import UUID, uuid4
 from sqlmodel import select
-from MeMen.src.agent.open_message import (
+from src.agent.open_message import (
     generate_opening_message,
     load_long_term_memories,
     load_pending_todos,
     mark_todos_used,
 )
 import asyncio
-from MeMen.src.agent.graph.graph import graph
+from src.agent.graph.graph import graph
 
 
 async def run_chat(user_id: str):

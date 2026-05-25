@@ -16,11 +16,11 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
 from mem0 import Memory
-from MeMen.src.models import TodoItem
-from MeMen.src.config import mem0_config
-from MeMen.src.database import get_session
+from src.models import TodoItem
+from src.config import mem0_config
+from src.database import get_session
 
-from MeMen.src.agent.state import ChatState
+from src.agent.state import ChatState
 
 import chromadb
 

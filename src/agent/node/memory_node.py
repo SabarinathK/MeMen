@@ -1,6 +1,6 @@
 import asyncio
-from MeMen.src.agent.state import ChatState
-from MeMen.src.agent.settings import memory_client
+from src.agent.state import ChatState
+from src.agent.settings import memory_client
 
 
 async def memory_node(state: ChatState) -> dict:

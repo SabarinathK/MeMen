@@ -349,11 +349,17 @@ def main(username: str):
 
             # Send raw transcript to mem0 for traditional memory
             try:
+                memory = extract_memory_summary(
+                    session_text=transcript["text"],
+                    session_label=transcript["label"],
+                    session_id=transcript["session"],
+                )
+
                 mem0.add(
                     messages=[
                         {
-                            "role": "user",
-                            "content": transcript["text"].strip(),
+                            "role": "system",
+                            "content": json.dumps(memory),
                         }
                     ],
                     user_id=str(user.id),

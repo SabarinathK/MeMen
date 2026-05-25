@@ -1,4 +1,4 @@
-from MeMen.src.agent.state import ChatState
+from src.agent.state import ChatState
 
 
 async def sync_barrier(state: ChatState) -> dict:

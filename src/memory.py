@@ -6,7 +6,7 @@ from mem0 import Memory
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 import redis as sync_redis
-from MeMen.src.config import mem0_config, REDIS_URL, ENCRYPTION_KEY
+from src.config import mem0_config, REDIS_URL, ENCRYPTION_KEY
 
 # ── LLM client ────────────────────────────────────────────────────────────────
 

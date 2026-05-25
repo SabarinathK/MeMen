@@ -1,7 +1,7 @@
 from sqlmodel import SQLModel, create_engine, Session
-from MeMen.src.models import User
+from src.models import User
 from passlib.context import CryptContext
-from MeMen.src.config import DATABASE_URL
+from src.config import DATABASE_URL
 
 engine = create_engine(DATABASE_URL, echo=False)
 

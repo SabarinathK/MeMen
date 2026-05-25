@@ -12,9 +12,9 @@ from langchain_core.messages import (
     AIMessage,
 )
 
-from MeMen.src.database import get_session
+from src.database import get_session
 
-from MeMen.src.models import (
+from src.models import (
     User,
     Conversation,
     Message,
@@ -22,13 +22,13 @@ from MeMen.src.models import (
 )
 
 # IMPORT FROM YOUR EXISTING GRAPH FILE
-from MeMen.src.agent.open_message import (
+from src.agent.open_message import (
     load_long_term_memories,
     load_pending_todos,
     mark_todos_used,
     generate_opening_message,
 )
-from MeMen.src.agent.graph.graph import graph
+from src.agent.graph.graph import graph
 
 st.set_page_config(
     page_title="MeMen",

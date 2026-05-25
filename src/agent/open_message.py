@@ -16,13 +16,13 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
 from mem0 import Memory
 
-from MeMen.src.models import User, TodoItem
-from MeMen.src.agent.state import ChatState
-from MeMen.src.agent.node.memory_node import memory_node
+from src.models import User, TodoItem
+from src.agent.state import ChatState
+from src.agent.node.memory_node import memory_node
 import chromadb
-from MeMen.src.agent.settings import *
-from MeMen.src.database import get_session
-from MeMen.src.agent.settings import llm, chroma_client, collection
+from src.agent.settings import *
+from src.database import get_session
+from src.agent.settings import llm, chroma_client, collection
 
 load_dotenv()
 
