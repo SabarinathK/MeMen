@@ -38,4 +38,4 @@ def create_sample_user():
 
 if __name__ == "__main__":
     create_db()
-    create_sample_user()
+    # create_sample_user()

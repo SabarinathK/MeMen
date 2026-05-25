@@ -1,13 +1,12 @@
-"""
-models.py — SQLite schema via SQLModel
-All tables for the full multi-tenant MeMen system
-"""
-
 from sqlmodel import SQLModel, Field
 from typing import Optional
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 import json
+from sqlmodel import SQLModel, Field as SQLField, JSON
+from typing import Optional, List, Dict, Any
+from datetime import datetime, timezone
+from uuid import UUID, uuid4
 
 
 class User(SQLModel, table=True):
@@ -63,3 +62,22 @@ class SessionMemoryMeta(SQLModel, table=True):
     consent_version: str = Field(default="v1.0")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     expires_at: datetime  # 90 days from now
+
+
+class UserMemorySchema(SQLModel, table=True):
+    __tablename__ = "user_identity_profiles"
+
+    user_id: str = SQLField(primary_key=True, index=True)
+    schema_version: str = SQLField(default="1.0.0")
+    last_updated: datetime = SQLField(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+    profile_summary: str = SQLField(default="")
+    current_focus: Optional[str] = SQLField(default=None)
+    emotional_archetype: Optional[str] = SQLField(default=None)
+
+    # Store dynamic arrays and nested properties safely using JSON column types
+    themes: List[str] = SQLField(default_factory=list, sa_type=JSON)
+    key_memories: List[Dict[str, Any]] = SQLField(default_factory=list, sa_type=JSON)
+    preferences: Dict[str, Any] = SQLField(default_factory=dict, sa_type=JSON)
+    consent: Dict[str, Any] = SQLField(default_factory=dict, sa_type=JSON)

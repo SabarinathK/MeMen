@@ -17,7 +17,7 @@ from sqlmodel import Session as SM_Session
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-
+from src.upload import TRANSCRIPTS
 from src.config import mem0_config, DATABASE_URL
 from src.models import User, Conversation, Message, TodoItem
 from src.memory import encrypt_message, build_and_cache_recall

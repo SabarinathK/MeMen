@@ -1,326 +1,224 @@
 import os
 import json
 import re
+import hashlib
+import uuid
+import asyncio
 from datetime import datetime, timezone
-from typing import List, Dict, Any, Tuple
-
+from typing import List, Tuple
 
 from dotenv import load_dotenv
-
-
 from mem0 import Memory
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage
-from sqlmodel import select
-from sqlmodel import Session as SM_Session
-from sqlalchemy import create_engine
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.prompts import ChatPromptTemplate
+from pydantic import BaseModel, Field
+from sqlmodel import select, create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlmodel import Session as SM_Session
 
-
-from src.config import mem0_config, DATABASE_URL
-from src.models import User, Conversation, Message, TodoItem
-from src.memory import encrypt_message, build_and_cache_recall
 from src.transcript import TRANSCRIPTS
-from src.upload import *
+from src.config import mem0_config, DATABASE_URL
+from src.models import User, Conversation, Message, TodoItem, UserMemorySchema
+from src.memory import encrypt_message, build_and_cache_recall, redact_pii
 
 load_dotenv()
-
 
 if not os.getenv("OPENROUTER_API_KEY"):
     raise ValueError("OPENROUTER_API_KEY missing")
 
-
-bot = ChatOpenAI(
+llm = ChatOpenAI(
     model="openai/gpt-4o-mini",
     openai_api_base="https://openrouter.ai/api/v1",
     openai_api_key=os.getenv("OPENROUTER_API_KEY"),
+    temperature=0.1,
 )
 
-# Example: your schema‑aligned memory object
-USER_MEMORY_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "user_id": {"type": "string"},
-        "schema_version": {"type": "string"},
-        "last_updated": {"type": "string", "format": "date-time"},
-        "profile_summary": {"type": "string"},
-        "current_focus": {"type": "string"},
-        "themes": {"type": "array", "items": {"type": "string"}},
-        "emotional_archetype": {"type": "string"},
-        "key_memories": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "id": {"type": "string"},
-                    "timestamp": {"type": "string", "format": "date-time"},
-                    "session_theme": {"type": "string"},
-                    "emotional_tone": {"type": "string"},
-                    "summary": {"type": "string"},
-                    "action_taken": {"type": "string"},
-                    "sentiment_impact": {"type": "string"},
-                },
-                "required": [
-                    "id",
-                    "timestamp",
-                    "session_theme",
-                    "emotional_tone",
-                    "summary",
-                ],
-            },
-        },
-        "preferences": {
-            "type": "object",
-            "properties": {
-                "tone": {"type": "string"},
-                "depth_preference": {"type": "string"},
-                "avoid_topics": {"type": "array", "items": {"type": "string"}},
-                "response_style": {"type": "string"},
-            },
-        },
-        "consent": {
-            "type": "object",
-            "properties": {
-                "memory_enabled": {"type": "boolean"},
-                "session_summaries_archived": {"type": "boolean"},
-                "deletion_requested": {"type": "boolean"},
-            },
-            "required": [
-                "memory_enabled",
-                "session_summaries_archived",
-                "deletion_requested",
-            ],
-        },
-    },
-    "required": [
-        "user_id",
-        "schema_version",
-        "last_updated",
-        "profile_summary",
-        "themes",
-        "key_memories",
-        "preferences",
-        "consent",
-    ],
-}
+
+class KeyMemoryItem(BaseModel):
+    id: str = Field(description="Unique session snapshot tracking ID")
+    timestamp: str = Field(description="ISO date-time string representation")
+    session_theme: str = Field(description="Dominant theme discussed")
+    emotional_tone: str = Field(description="User emotional state overview")
+    summary: str = Field(description="Factual core breakdown")
+    action_taken: str = Field(default="")
+    sentiment_impact: str = Field(default="")
 
 
-# === NEW: extract structured memory summary ===
-def extract_memory_summary(
-    session_text: str,
-    session_label: str,
-    session_id: int,
-) -> Dict[str, Any]:
-    """
-    Call LLM to extract a structured memory summary for one session.
-    In practice, for DeepSeek you'd enable JSON mode and validate against USER_MEMORY_SCHEMA.
-    """
-    prompt = f"""
-You are a psychology‑aware assistant that helps a therapist AI remember key insights from past sessions.
-
-Please read this session transcript and return a JSON object that matches the following schema:
-
-{json.dumps(USER_MEMORY_SCHEMA, indent=2)}
-
-Guidelines:
-- `profile_summary`: 2–3 sentences summarizing the user's main struggles, growth, and emotional tone.
-- `current_focus`: 1 sentence describing the user's current main concern.
-- `themes`: 3–5 short strings (e.g., ["anxiety", "work‑life balance"]).
-- `emotional_archetype`: 1 short phrase describing the user's predominant emotional pattern or style.
-- `key_memories`: Array of exactly one entry representing this session:
-  - `id`: "s{session_id}"
-  - `timestamp`: use ISO 8601 UTC (e.g., "2026-05-25T18:00:00Z")
-  - `session_theme`: session label
-  - `emotional_tone`: 1–2 words describing the user's mood (e.g., "frustrated", "relieved")
-  - `summary`: 1–2 sentences in a warm, narrative tone describing what happened.
-  - `action_taken`: What the user committed to, tried, or agreed to do.
-  - `sentiment_impact`: 1 short phrase describing how the user felt after the session.
-- `preferences`:
-  - `tone`: how the user prefers the AI to sound (e.g., "gentle, validating").
-  - `depth_preference`: how much depth the user likes early vs. later (e.g., "moderate early, deeper later").
-  - `avoid_topics`: topics the user has asked to avoid (e.g., "family conflict", "past trauma").
-  - `response_style`: how the user prefers responses (e.g., "short paragraphs, 1‑2 questions").
-- `consent`:
-  - `memory_enabled`: True
-  - `session_summaries_archived`: True
-  - `deletion_requested`: False
-
-Session transcript:
-{session_text}
-
-Return only a valid JSON object, no extra text, no markdown.
-""".strip()
-
-    try:
-        response = bot.invoke([HumanMessage(content=prompt)])
-        content = str(response.content).strip()
-
-        # If you were using DeepSeek or another JSON‑mode API, you'd set:
-        #   response_format={"type": "json_object"}
-        # and parse directly; here we just clean and parse.
-        content = re.sub(r"^```json", "", content)
-        content = re.sub(r"^```", "", content)
-        content = re.sub(r"```$", "", content)
-        content = content.strip()
-
-        parsed = json.loads(content)
-        if isinstance(parsed, dict):
-            # Patch in missing fields to roughly match schema
-            parsed.setdefault("user_id", "usr_123")
-            parsed.setdefault("schema_version", "1.0")
-            parsed.setdefault(
-                "last_updated",
-                datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-            )
-            return parsed
-    except (json.JSONDecodeError, Exception) as e:
-        print(f"[WARN] Failed to parse memory JSON for session {session_id}: {e}")
-
-    # Fallback minimal memory
-    return {
-        "user_id": "usr_123",
-        "schema_version": "1.0",
-        "last_updated": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "profile_summary": "User shared feelings of anxiety and stress and is exploring ways to cope with them.",
-        "current_focus": "Managing stress and sleep issues.",
-        "themes": ["anxiety", "stress", "sleep"],
-        "emotional_archetype": "overwhelmed, caring",
-        "key_memories": [
-            {
-                "id": f"s{session_id}",
-                "timestamp": datetime.now(timezone.utc)
-                .isoformat()
-                .replace("+00:00", "Z"),
-                "session_theme": session_label,
-                "emotional_tone": "neutral",
-                "summary": f"User discussed {session_label.lower()} and agreed to try some coping strategies.",
-                "action_taken": "User agreed to try a grounding exercise or small behavioral change.",
-                "sentiment_impact": "slightly more hopeful",
-            }
-        ],
-        "preferences": {
-            "tone": "gentle, validating",
-            "depth_preference": "moderate early, deeper later",
-            "avoid_topics": [],
-            "response_style": "short paragraphs, 1–2 questions",
-        },
-        "consent": {
-            "memory_enabled": True,
-            "session_summaries_archived": True,
-            "deletion_requested": False,
-        },
-    }
+class ProfilePreferences(BaseModel):
+    tone: str = Field(default="")
+    depth_preference: str = Field(default="")
+    avoid_topics: List[str] = Field(default_factory=list)
+    response_style: str = Field(default="")
 
 
-# === NEW: merge session‑level memory into a per‑user artifact ===
-def merge_memory_into_user(user_id: str, base_memory: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    In real code, you'd:
-    - Load existing user memory artifact from DB.
-    - Merge new key_memories (limit to last N).
-    - Re‑summarize profile_summary / current_focus if needed.
-    - Return the updated memory JSON.
-    """
-    # In practice you'd load from DB; here we fake it
-    user_memory = {
-        "user_id": user_id,
-        "schema_version": "1.0",
-        "last_updated": base_memory["last_updated"],
-        "profile_summary": base_memory.get(
-            "profile_summary", "User is exploring anxiety and stress concerns."
-        ),
-        "current_focus": base_memory.get(
-            "current_focus", "Managing stress and sleep issues."
-        ),
-        "themes": list(set(base_memory.get("themes", []) + ["stress", "anxiety"][:2])),
-        "emotional_archetype": base_memory.get(
-            "emotional_archetype", "overwhelmed, caring"
-        ),
-        "key_memories": base_memory.get("key_memories", []),
-        "preferences": base_memory.get(
-            "preferences",
-            {
-                "tone": "gentle, validating",
-                "depth_preference": "moderate early, deeper later",
-                "avoid_topics": [],
-                "response_style": "short paragraphs, 1–2 questions",
-            },
-        ),
-        "consent": base_memory.get(
-            "consent",
-            {
-                "memory_enabled": True,
-                "session_summaries_archived": True,
-                "deletion_requested": False,
-            },
-        ),
-    }
+class CoreConsent(BaseModel):
+    memory_enabled: bool
+    session_summaries_archived: bool
+    deletion_requested: bool
 
-    # Trim key_memories to, say, last 5
-    user_memory["key_memories"] = user_memory["key_memories"][-5:]
-    user_memory["last_updated"] = (
-        datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+class FullIdentityProfileExtractor(BaseModel):
+    schema_version: str = Field(default="1.0.0")
+    profile_summary: str = Field(
+        description="Cohesive high-level synthesis of user state"
     )
+    current_focus: str = Field(default="")
+    emotional_archetype: str = Field(default="")
+    themes: List[str] = Field(default_factory=list)
+    key_memories: List[KeyMemoryItem] = Field(default_factory=list)
+    preferences: ProfilePreferences
+    consent: CoreConsent
 
-    return user_memory
+
+# Dynamic runtime verification binding for LangChain structured outputs
+structured_identity_llm = llm.with_structured_output(FullIdentityProfileExtractor)
+
+identity_prompt_template = ChatPromptTemplate.from_messages(
+    [
+        (
+            "system",
+            (
+                "You are an identity profiling engine. Synthesize conversation inputs "
+                "and existing schema parameters into a unified profile matching the requested structure. "
+                "Ensure data privacy rules and consent flags are preserved accurately."
+            ),
+        ),
+        (
+            "human",
+            "Transcript:\n{transcript}\n\nExisting Profile State Context:\n{existing_context}",
+        ),
+    ]
+)
+
+identity_extraction_chain = identity_prompt_template | structured_identity_llm
 
 
-# === NEW: generate a warm opening message referencing past sessions ===
-def generate_warm_opening(user_memory: Dict[str, Any]) -> str:
-    """
-    Use the memory JSON to generate a warm, natural‑sounding opening.
-    In production you'd call the LLM with the user_memory injected into the context.
-    """
-    # Example: hard‑coded template using the memory
-    last_mem = user_memory["key_memories"][-1] if user_memory["key_memories"] else None
-    if last_mem:
-        opening = (
-            f"Hi there. It’s good to reconnect. "
-            f"Last time we talked about {last_mem['session_theme'].lower()} "
-            f"and you mentioned feeling {last_mem['emotional_tone']} — "
-            f"it’s okay if that still feels tough. "
-            f"Since then, your current focus has been on {user_memory['current_focus'].lower()}. "
-            f"Would you like to start there, or is there something else on your mind today?"
+def split_turns(text: str) -> List[Tuple[str, str]]:
+    lines = text.splitlines()
+    turns = []
+    current_role = None
+    buffer = []
+
+    for raw in lines:
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith("User:"):
+            if current_role and buffer:
+                turns.append((current_role, " ".join(buffer).strip()))
+            current_role = "user"
+            buffer = [line.replace("User:", "", 1).strip()]
+        elif line.startswith("MeMen:"):
+            if current_role and buffer:
+                turns.append((current_role, " ".join(buffer).strip()))
+            current_role = "assistant"
+            buffer = [line.replace("MeMen:", "", 1).strip()]
+        else:
+            if buffer:
+                buffer.append(line)
+
+    if current_role and buffer:
+        turns.append((current_role, " ".join(buffer).strip()))
+    return turns
+
+
+def find_or_create_user(username: str, session: SM_Session) -> User:
+    user = session.exec(select(User).where(User.username == username)).first()
+    if user:
+        return user
+
+    from passlib.context import CryptContext
+
+    pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
+    hashed_password = pwd_context.hash("Password123")
+
+    user = User(
+        username=username,
+        email=f"{username}@example.com",
+        hashed_password=hashed_password,
+        memory_consent=True,
+    )
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return user
+
+
+def extract_followups(text: str) -> List[str]:
+    prompt = f"You are reviewing the final session of a mental wellness conversation history.\nSession transcript:\n{text}\nExtract concrete things the user committed to.\nReturn ONLY a JSON array of short strings. Max 3 items."
+    try:
+        response = llm.invoke([HumanMessage(content=prompt)])
+        content = str(response.content).strip()
+        content = re.sub(r"^```json|```$", "", content, flags=re.IGNORECASE).strip()
+        parsed = json.loads(content)
+        return [str(x) for x in parsed][:3] if isinstance(parsed, list) else []
+    except Exception as e:
+        print(f"[WARN] Followup extraction failed: {e}")
+        return []
+
+
+def sync_structured_identity_profile(
+    user_id: str, transcript: str, db: SM_Session
+) -> None:
+    try:
+        profile = db.get(UserMemorySchema, user_id)
+        existing_context = profile.model_dump_json() if profile else "{}"
+
+        # Invoke the LangChain extraction graph
+        extracted_data: FullIdentityProfileExtractor = identity_extraction_chain.invoke(
+            {"transcript": transcript, "existing_context": existing_context}
         )
-    else:
-        opening = (
-            f"Hi there. Long time no talk. "
-            f"From what we’ve explored so far, you’ve been working on {user_memory['current_focus'].lower()}. "
-            f"Would you like to pick up there today, or share what’s freshest on your mind?"
+
+        now = datetime.now(timezone.utc)
+        model_dictionary = extracted_data.model_dump()
+
+        if profile:
+            profile.schema_version = model_dictionary["schema_version"]
+            profile.last_updated = now
+            profile.profile_summary = model_dictionary["profile_summary"]
+            profile.current_focus = model_dictionary["current_focus"]
+            profile.emotional_archetype = model_dictionary["emotional_archetype"]
+            profile.themes = model_dictionary["themes"]
+            profile.key_memories = model_dictionary["key_memories"]
+            profile.preferences = model_dictionary["preferences"]
+            profile.consent = model_dictionary["consent"]
+            db.add(profile)
+        else:
+            new_profile = UserMemorySchema(
+                user_id=user_id, last_updated=now, **model_dictionary
+            )
+            db.add(new_profile)
+        db.commit()
+        print(
+            f"[OK] Structured UserMemorySchema compiled by LangChain for user {user_id}"
         )
+    except Exception as e:
+        print(f"[FAILURE BOUNDARY] LangChain identity schema compilation aborted: {e}")
 
-    return opening
 
-
-# === main(...) updated to show memory extraction and opening message ===
 def main(username: str):
-    print("\nStarting transcript ingestion and memory extraction...\n")
-
+    print("\nStarting transcript ingestion...\n")
     engine = create_engine(DATABASE_URL)
     SessionLocal = sessionmaker(
-        bind=engine,
-        class_=SM_Session,
-        autoflush=False,
-        autocommit=False,
+        bind=engine, class_=SM_Session, autoflush=False, autocommit=False
     )
 
     try:
         mem0 = Memory.from_config(mem0_config)
     except Exception as e:
-        print("\n[ERROR] Mem0 initialization failed")
-        print(e)
+        print(f"\n[ERROR] Mem0 initialization failed: {e}")
         return
 
     with SessionLocal() as db:
-        target_username = username
-        user = find_or_create_user(target_username, db)
+        user = find_or_create_user(username, db)
         print(f"Using user: {user.username}")
-
         last_conversation_id = None
+        combined_transcripts_text = ""
 
-        # --- First: ingest conversations as before ---
         for transcript in TRANSCRIPTS:
             print(f"\nProcessing Session {transcript['session']}...")
+            combined_transcripts_text += f"\n{transcript['text']}"
 
             conversation = Conversation(
                 user_id=user.id,
@@ -339,48 +237,51 @@ def main(username: str):
                         user_id=user.id,
                         role=role,
                         content_encrypted=encrypted,
-                        created_at=datetime.utcnow(),
+                        created_at=datetime.now(timezone.utc),
                     )
                     db.add(message)
                 except Exception as e:
                     print(f"[WARN] Failed storing message: {e}")
-
             db.commit()
 
-            # Send raw transcript to mem0 for traditional memory
+            # Idempotent Unstructured Vector Storage
             try:
-                memory = extract_memory_summary(
-                    session_text=transcript["text"],
-                    session_label=transcript["label"],
-                    session_id=transcript["session"],
+                clean_text = redact_pii(transcript["text"].strip())
+                hasher = hashlib.sha256(clean_text.encode("utf-8"))
+                namespace = uuid.UUID("12345678-1234-5678-1234-567812345678")
+                deterministic_run_id = str(
+                    uuid.uuid5(namespace, f"{user.id}_{hasher.hexdigest()}")
                 )
 
                 mem0.add(
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": json.dumps(memory),
-                        }
-                    ],
+                    messages=[{"role": "user", "content": clean_text}],
                     user_id=str(user.id),
+                    metadata={
+                        "run_id": deterministic_run_id,
+                        "ingested_at": datetime.now(timezone.utc).isoformat(),
+                    },
                 )
-                print(f"[OK] Memory stored for Session {transcript['session']}")
+                print(
+                    f"[OK] Unstructured memory fragments securely stored for Session {transcript['session']}"
+                )
             except Exception as e:
-                print(f"[WARN] Mem0 add failed: {e}")
+                print(f"[FAILURE BOUNDARY] Mem0 partition storage bypassed safely: {e}")
 
             last_conversation_id = conversation.id
 
+        # Compile and Update Core Relational User Identity Profile Matrix
+        print("\nCompiling structured identity matrix summary...")
+        sync_structured_identity_profile(str(user.id), combined_transcripts_text, db)
+
         try:
-            build_and_cache_recall(
-                str(user.id),
-                [],
-            )
+            build_and_cache_recall(str(user.id), [])
             print("\n[OK] Recall cache updated")
         except Exception as e:
             print(f"\n[WARN] Recall cache failed: {e}")
 
         print("\nExtracting follow-up tasks...")
         followups = extract_followups(TRANSCRIPTS[-1]["text"])
+
         if followups:
             print(f"\nFound {len(followups)} follow-up items")
             for item in followups:
@@ -398,35 +299,6 @@ def main(username: str):
             db.commit()
         else:
             print("\nNo followups extracted")
-
-        # --- NEW: extract structured memory summaries for each session ---
-        print("\n--- Generating structured memories ---")
-        user_memories = []
-        for transcript in TRANSCRIPTS:
-            print(f"Extracting memory for Session {transcript['session']}...")
-            memory = extract_memory_summary(
-                session_text=transcript["text"],
-                session_label=transcript["label"],
-                session_id=transcript["session"],
-            )
-            user_memories.append(memory)
-
-        # --- Merge into a single user memory artifact ---
-        if user_memories:
-            # In reality, you’d load existing user memory from DB and merge incrementally
-            merged_memory = user_memories[-1]  # for demo, just use last session
-            consolidated_memory = merge_memory_into_user(str(user.id), merged_memory)
-
-            # --- Print a warm opening message as a demo ---
-            print("\n--- Warm opening message ---")
-            opening = generate_warm_opening(consolidated_memory)
-            print(opening)
-
-            # In production, you’d:
-            #  - store consolidated_memory in DB (e.g., JSONB column)
-            #  - inject it into the LLM context at session start
-        else:
-            print("\nNo memory summaries generated.")
 
     print("\nDone!\n")
 

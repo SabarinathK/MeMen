@@ -11,7 +11,8 @@ class ChatState(TypedDict):
     relevant_memories: Optional[list]  # memory_node
     emotion: Optional[str]  # emotion_node
     todo_status: Optional[str]  # todo_node
-    active_todo: Optional[str]  # todo_node
+    active_todo: Optional[str]
+    structured_profile: Optional[dict]
 
     # Written by response_node — must be set before followup/mem0
     reply: Optional[str]

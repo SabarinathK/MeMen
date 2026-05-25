@@ -14,6 +14,7 @@ from src.agent.open_message import (
 )
 import asyncio
 from src.agent.graph.graph import graph
+from src.agent.node.memory_node import _sync_fetch_macro_profile
 
 
 async def run_chat(user_id: str):
@@ -27,18 +28,22 @@ async def run_chat(user_id: str):
     user_id = user.id
     conversation_id = uuid4()
 
-    memories, todos = await asyncio.gather(
+    memories, todos, profile_dict = await asyncio.gather(
         load_long_term_memories(str(user_id)),
         asyncio.to_thread(load_pending_todos, user_id),
+        asyncio.to_thread(_sync_fetch_macro_profile, str(user_id)),  # Fetch the schema
     )
 
     print(f"\n[+] Loaded {len(memories)} memories")
     print(f"[+] Loaded {len(todos)} todos")
+    print(f"[+] Loaded profile schema state: {bool(profile_dict)}")
 
-    opening = await generate_opening_message(memories, todos)
-    mark_todos_used(user_id)
+    # 2. Pass the profile_dict straight into your opening message function
+    opening = await generate_opening_message(memories, todos, profile_dict)
 
-    print("\n" + "─" * 60)
+    await asyncio.to_thread(mark_todos_used, user_id)
+
+    print("─" * 60)
     print(f"MeMen: {opening}")
     print("─" * 60)
 

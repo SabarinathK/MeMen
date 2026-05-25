@@ -23,6 +23,7 @@ import chromadb
 from src.agent.settings import *
 from src.database import get_session
 from src.agent.settings import llm, chroma_client, collection
+from typing import Optional
 
 load_dotenv()
 
@@ -82,27 +83,44 @@ def mark_todos_used(user_id: UUID) -> None:
         session.commit()
 
 
-async def generate_opening_message(memories: list, todos: list) -> str:
+async def generate_opening_message(
+    memories: list, todos: list, profile: Optional[dict]
+) -> str:
     todo_text = todos[0].text if todos else ""
-    prompt = f"""
-You are MeMen.
 
-Long term memories:
+    # Format the structured identity parameters cleanly for the LLM context wrapper
+    if profile:
+        profile_block = (
+            f"Summary: {profile.get('profile_summary', '')}\n"
+            f"Current Focus: {profile.get('current_focus', '')}\n"
+            f"Themes Covered: {', '.join(profile.get('themes', []))}\n"
+            f"Emotional Archetype: {profile.get('emotional_archetype', '')}"
+        )
+    else:
+        profile_block = "No high-level identity profile established yet."
+
+    prompt = f"""
+You are MeMen, a warm, thoughtful mental wellness companion.
+
+[CORE USER PROFILE SCHEMA Context]
+{profile_block}
+
+[RELEVANT LTM ATOMIC FACT NODES]
 {memories}
 
-Pending followup:
+[PENDING FOLLOWUP ACTION ITEM]
 {todo_text}
 
-Write a warm opening message that links past sessions, the current pending task, and detected emotion in a caring way.
+Task:
+Write a warm, deeply personalized session-opening message. Use the user profile schema to match their current emotional archetype and primary focus area seamlessly without explicitly mentioning the database keys.
 
 Rules:
 - Keep under 15 words
-- Casual and conversational
-- Subtle continuity only
-- No emotional interpretation
+- Casual, warm, and conversational
+- Subtle continuity only (e.g., 'Hey, how's that evening walking goal going?')
+- No explicit emotional interpretation or therapist phrasing
 - No life advice
-- No therapist tone
-- Sound like a thoughtful friend
+- Sound like a thoughtful friend checking in via text
 """
     resp = await llm.ainvoke([HumanMessage(content=prompt)])
     return strip_think_tags(resp.content)
