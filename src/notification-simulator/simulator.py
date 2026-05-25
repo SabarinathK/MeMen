@@ -1,8 +1,3 @@
-"""
-trigger_simulator.py — Mentra Re-engagement Trigger Simulator
-Run: streamlit run trigger_simulator.py
-"""
-
 import streamlit as st
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -29,7 +24,7 @@ html, body, [class*="css"] {
 }
 
 /* Page background */
-.stApp { background: #F8FAF9; }
+.stApp { background: #000000; color: #F9FAFB; }
 
 /* Hide default streamlit chrome */
 #MainMenu, footer, header { visibility: hidden; }
