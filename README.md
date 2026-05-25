@@ -62,6 +62,12 @@ A prototype conversational memory assistant built with Streamlit, SQLModel, Chro
    - username: `sabari`
    - password: `sabari`
 
+
+8. To run notification simulation:
+   ```
+   uv run streamlit run src\notification-simulator\simulator.py
+
+   ```
 ## Design Decisions
 
 ### Why Parallel Graph Architecture?
