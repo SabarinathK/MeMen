@@ -170,6 +170,8 @@ These three run in parallel, then converge at a sync barrier before the main res
 - Track emotional arc: if the user's emotion goes from "stressed" → "hopeful" during a session, highlight this as positive progress and use it to reinforce coping strategies.
 - Add optional manual reflection: let the user rate the session (helpful/neutral/unhelpful) and store this feedback to improve future agent responses.
 
+- Priority 7: Integrate an AI avatar voice using Pipecat and Tavus to generate personalized spoken responses and avatar-driven feedback, enhancing conversational presence and accessibility.
+
 ### Success Metrics (End of 2 Weeks)
 - **Latency**: Target < 1.5 seconds end-to-end response time (from < 2–3 seconds).
 - **Memory accuracy**: Manual audit of 10 conversations shows < 10% repetition across turns.
